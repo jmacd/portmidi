@@ -26,6 +26,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 )
@@ -57,6 +58,8 @@ type Event struct {
 
 // Stream represents a portmidi stream.
 type Stream struct {
+	lock sync.Mutex
+
 	deviceID DeviceID
 	pmStream *C.PmStream
 
@@ -95,6 +98,8 @@ func NewOutputStream(id DeviceID, bufferSize int64, latency int64) (stream *Stre
 
 // Close closes the MIDI stream.
 func (s *Stream) Close() error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	if s.pmStream == nil {
 		return nil
 	}
@@ -103,6 +108,8 @@ func (s *Stream) Close() error {
 
 // Abort aborts the MIDI stream.
 func (s *Stream) Abort() error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	if s.pmStream == nil {
 		return nil
 	}
@@ -111,6 +118,8 @@ func (s *Stream) Abort() error {
 
 // Write writes a buffer of MIDI events to the output stream.
 func (s *Stream) Write(events []Event) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	size := len(events)
 	if size > maxEventBufferSize {
 		return ErrMaxBuffer
@@ -138,6 +147,8 @@ func (s *Stream) WriteShort(status int64, data1 int64, data2 int64) error {
 
 // WriteSysExBytes writes a system exclusive MIDI message given as a []byte to the output stream.
 func (s *Stream) WriteSysExBytes(when Timestamp, msg []byte) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	return convertToError(C.Pm_WriteSysEx(unsafe.Pointer(s.pmStream), C.PmTimestamp(when), (*C.uchar)(unsafe.Pointer(&msg[0]))))
 }
 
@@ -158,12 +169,16 @@ func (s *Stream) WriteSysEx(when Timestamp, msg string) error {
 // s.SetChannelMask(Channel(1) | Channel(10)) will both filter input
 // from channel 1 and 10.
 func (s *Stream) SetChannelMask(mask int) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	return convertToError(C.Pm_SetChannelMask(unsafe.Pointer(s.pmStream), C.int(mask)))
 }
 
 // Reads from the input stream, the max number events to be read are
 // determined by max.
 func (s *Stream) Read(max int) (events []Event, err error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	if max > maxEventBufferSize {
 		return nil, ErrMaxBuffer
 	}
@@ -231,6 +246,8 @@ func (s *Stream) Read(max int) (events []Event, err error) {
 // is preferable to use Read() and inspect the Event.SysEx field to
 // detect SysEx messages.
 func (s *Stream) ReadSysExBytes(max int) ([]byte, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	evt, err := s.Read(max)
 	if err != nil {
 		return nil, err
@@ -263,6 +280,8 @@ func (s *Stream) Listen() <-chan Event {
 
 // Poll reports whether there is input available in the stream.
 func (s *Stream) Poll() (bool, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	poll := C.Pm_Poll(unsafe.Pointer(s.pmStream))
 	if poll < 0 {
 		return false, convertToError(C.PmError(poll))
